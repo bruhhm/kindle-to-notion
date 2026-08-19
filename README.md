@@ -1,4 +1,4 @@
-﻿# Kindle and Goodreads to Notion Sync Engine
+# Kindle and Goodreads to Notion Sync Engine
 
 An automated, high-performance synchronization system that bridges your Amazon Kindle highlights and Goodreads reading library directly into a relational Notion database workspace.
 
