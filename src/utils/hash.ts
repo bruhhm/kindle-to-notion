@@ -12,7 +12,7 @@ export function generateHighlightHash(asinOrTitle: string, location: string | un
 }
 
 /**
- * Normalizes book title for fuzzy matching across services.
+ * Normalizes book title for fuzzy matching across Kindle and Goodreads.
  */
 export function normalizeTitle(title: string): string {
   if (!title) return '';
@@ -20,6 +20,9 @@ export function normalizeTitle(title: string): string {
     .toLowerCase()
     .replace(/\(.*?\)/g, '')
     .replace(/\[.*?\]/g, '')
+    .replace(/[–—].*$/g, '')
+    .replace(/:\s*.*$/g, '')
+    .replace(/-\s*.*$/g, '')
     .replace(/[^a-z0-9\s]/g, '')
     .trim()
     .replace(/\s+/g, ' ');
