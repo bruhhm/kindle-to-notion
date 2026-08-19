@@ -1,4 +1,4 @@
-﻿import { Client, isFullPage } from '@notionhq/client';
+import { Client, isFullPage } from '@notionhq/client';
 import { MergedBookData, SyncStats, KindleHighlight } from '../types.js';
 import { normalizeTitle } from '../utils/hash.js';
 

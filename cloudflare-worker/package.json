@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "kindle-notion-sync-worker",
   "version": "1.0.0",
   "description": "Cloudflare Worker webhook relay to trigger Kindle to Notion GitHub Actions sync",

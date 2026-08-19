@@ -1,4 +1,4 @@
-﻿import { chromium, BrowserContext, Page } from 'playwright';
+import { chromium, BrowserContext, Page } from 'playwright';
 import { KindleBook, KindleHighlight, HighlightType } from '../types.js';
 import { generateHighlightHash } from '../utils/hash.js';
 

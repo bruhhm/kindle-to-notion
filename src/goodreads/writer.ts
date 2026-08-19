@@ -1,4 +1,4 @@
-﻿import { chromium, BrowserContext, Page } from 'playwright';
+import { chromium, BrowserContext, Page } from 'playwright';
 import { ReadingStatus } from '../types.js';
 
 export interface GoodreadsWriterConfig {

@@ -1,4 +1,4 @@
-﻿import { chromium, BrowserContext } from 'playwright';
+import { chromium, BrowserContext } from 'playwright';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';

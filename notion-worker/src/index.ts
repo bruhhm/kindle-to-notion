@@ -1,4 +1,4 @@
-﻿import { Worker, j } from "@notionhq/workers";
+import { Worker, j } from "@notionhq/workers";
 import * as Builder from "@notionhq/workers/builder";
 import * as Schema from "@notionhq/workers/schema";
 import Parser from "rss-parser";

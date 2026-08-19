@@ -1,4 +1,4 @@
-﻿import { Client } from '@notionhq/client';
+import { Client } from '@notionhq/client';
 
 export interface DatabaseCreationResult {
   booksDatabaseId: string;

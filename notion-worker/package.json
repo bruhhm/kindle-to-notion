@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "kindle-goodreads-notion-worker",
   "version": "1.0.0",
   "description": "Notion Worker for Goodreads and Kindle library sync, scheduled syncs, and AI agent tools",

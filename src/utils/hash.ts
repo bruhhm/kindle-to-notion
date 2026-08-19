@@ -1,4 +1,4 @@
-﻿import { createHash } from 'crypto';
+import { createHash } from 'crypto';
 
 /**
  * Creates a deterministic SHA-256 hash for a highlight to guarantee deduplication.

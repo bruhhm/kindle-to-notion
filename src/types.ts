@@ -1,4 +1,4 @@
-﻿export type ReadingStatus = 'Want to Read' | 'Currently Reading' | 'Read';
+export type ReadingStatus = 'Want to Read' | 'Currently Reading' | 'Read';
 
 export type HighlightType = 'Highlight' | 'Note' | 'Bookmark';
 

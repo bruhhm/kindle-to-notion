@@ -1,4 +1,4 @@
-﻿import Parser from 'rss-parser';
+import Parser from 'rss-parser';
 import { GoodreadsData, ReadingStatus } from '../types.js';
 import { normalizeTitle } from '../utils/hash.js';
 

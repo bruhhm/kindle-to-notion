@@ -1,4 +1,4 @@
-﻿import * as dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { createNotionClient } from '../notion/client.js';
 import { scaffoldNotionDatabases } from '../notion/schema.js';
 

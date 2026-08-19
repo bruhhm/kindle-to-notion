@@ -1,4 +1,4 @@
-﻿import * as dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { KindleScraper } from './scrapers/kindle.js';
 import { BooksApiEnricher } from './enrichers/booksApi.js';
 import { GoodreadsEnricher, FullGoodreadsBook } from './enrichers/goodreads.js';

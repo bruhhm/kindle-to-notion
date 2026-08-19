@@ -1,4 +1,4 @@
-﻿import { Client } from '@notionhq/client';
+import { Client } from '@notionhq/client';
 
 export function createNotionClient(apiKey: string): Client {
   if (!apiKey || apiKey.trim().length === 0) {

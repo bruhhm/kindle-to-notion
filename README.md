@@ -1,4 +1,4 @@
-﻿# Kindle to Notion Sync Automation
+# Kindle to Notion Sync Automation
 
 Automated sync engine that connects your Kindle library, highlights, notes, and bookmarks to a relational Notion workspace every 6 hours via GitHub Actions.
 

@@ -1,4 +1,4 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import { EnrichedMetadata } from '../types.js';
 
 interface GoogleBooksItem {

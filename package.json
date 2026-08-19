@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "kindle-to-notion",
   "version": "1.0.0",
   "description": "Automated Kindle and Goodreads to Notion two-way sync engine with metadata enrichment and 6-hour scheduler",
