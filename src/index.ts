@@ -1,4 +1,4 @@
-import * as dotenv from 'dotenv';
+﻿import * as dotenv from 'dotenv';
 import { KindleScraper } from './scrapers/kindle.js';
 import { BooksApiEnricher } from './enrichers/booksApi.js';
 import { GoodreadsEnricher, FullGoodreadsBook } from './enrichers/goodreads.js';
@@ -44,19 +44,22 @@ async function main() {
     console.log('Checking for Notion status/rating updates to sync back to Goodreads...');
     const { byTitle } = await syncEngine.getExistingBooks();
     const grWriter = new GoodreadsWriter({ cookieString: goodreadsCookie });
+    const isReady = await grWriter.init();
 
-    for (const gb of goodreadsBooks) {
-      const normTitle = normalizeTitle(gb.title);
-      const notionBook = byTitle.get(normTitle);
+    if (isReady) {
+      for (const gb of goodreadsBooks) {
+        const normTitle = normalizeTitle(gb.title);
+        const notionBook = byTitle.get(normTitle);
 
-      if (notionBook && notionBook.currentStatus) {
-        // If status changed in Notion compared to Goodreads
-        if (notionBook.currentStatus !== gb.status) {
-          console.log(`Detected Notion status change for "${gb.title}": ${gb.status} -> ${notionBook.currentStatus}`);
-          await grWriter.updateBookShelfAndRating(gb.bookId || gb.title, notionBook.currentStatus as ReadingStatus, notionBook.currentRating);
-          gb.status = notionBook.currentStatus as ReadingStatus;
+        if (notionBook && notionBook.currentStatus) {
+          if (notionBook.currentStatus !== gb.status) {
+            console.log(`Detected Notion status change for "${gb.title}": ${gb.status} -> ${notionBook.currentStatus}`);
+            await grWriter.updateBookShelfAndRating(gb.bookId || gb.title, notionBook.currentStatus as ReadingStatus, notionBook.currentRating);
+            gb.status = notionBook.currentStatus as ReadingStatus;
+          }
         }
       }
+      await grWriter.close();
     }
   }
 
@@ -86,7 +89,6 @@ async function main() {
   const mergedBooks: MergedBookData[] = [];
   const processedTitles = new Set<string>();
 
-  // Process Goodreads books first
   for (const gb of goodreadsBooks) {
     const normTitle = normalizeTitle(gb.title);
     processedTitles.add(normTitle);
@@ -102,7 +104,6 @@ async function main() {
     let publishedDate: string | undefined = undefined;
     let isbn = gb.isbn;
 
-    // If missing cover or summary, enrich from Google Books / Open Library
     if (!coverUrl || !summary) {
       const enriched = await booksApiEnricher.enrichMetadata(gb.title, gb.author, matchingKindle?.asin);
       coverUrl = coverUrl || enriched.highResCoverUrl;
@@ -133,7 +134,6 @@ async function main() {
     });
   }
 
-  // Process any Kindle books not on Goodreads
   for (const kb of kindleBooks) {
     const normTitle = normalizeTitle(kb.title);
     if (!processedTitles.has(normTitle)) {
