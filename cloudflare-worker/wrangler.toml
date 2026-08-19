@@ -1,0 +1,9 @@
+﻿name = "kindle-notion-sync"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+GITHUB_OWNER = "bruhhm"
+GITHUB_REPO = "kindle-to-notion"
+GITHUB_WORKFLOW = "sync.yml"
+GITHUB_REF = "main"
