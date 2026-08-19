@@ -1,5 +1,6 @@
 ﻿import { Client, isFullPage } from '@notionhq/client';
 import { MergedBookData, SyncStats, KindleHighlight } from '../types.js';
+import { normalizeTitle } from '../utils/hash.js';
 
 export interface NotionSyncConfig {
   notion: Client;
@@ -23,10 +24,14 @@ export class NotionSyncEngine {
   }
 
   /**
-   * Fetches all existing books from Notion database indexed by ASIN.
+   * Fetches all existing books from Notion database indexed by ASIN and Normalized Title.
    */
-  async getExistingBooks(): Promise<Map<string, { pageId: string; currentStatus?: string; currentRating?: number }>> {
-    const map = new Map<string, { pageId: string; currentStatus?: string; currentRating?: number }>();
+  async getExistingBooks(): Promise<{
+    byAsin: Map<string, { pageId: string; currentStatus?: string; currentRating?: number }>;
+    byTitle: Map<string, { pageId: string; currentStatus?: string; currentRating?: number }>;
+  }> {
+    const byAsin = new Map<string, { pageId: string; currentStatus?: string; currentRating?: number }>();
+    const byTitle = new Map<string, { pageId: string; currentStatus?: string; currentRating?: number }>();
     let cursor: string | undefined = undefined;
 
     do {
@@ -38,12 +43,18 @@ export class NotionSyncEngine {
       for (const page of response.results) {
         if (isFullPage(page)) {
           const asinProp = page.properties['ASIN'];
+          const titleProp = page.properties['Title'];
           const statusProp = page.properties['Status'];
           const ratingProp = page.properties['Rating'];
 
           let asinValue = '';
           if (asinProp && asinProp.type === 'rich_text' && asinProp.rich_text.length > 0) {
             asinValue = asinProp.rich_text[0].plain_text.trim();
+          }
+
+          let titleValue = '';
+          if (titleProp && titleProp.type === 'title' && titleProp.title.length > 0) {
+            titleValue = titleProp.title.map(t => t.plain_text).join('').trim();
           }
 
           let statusValue: string | undefined = undefined;
@@ -56,8 +67,13 @@ export class NotionSyncEngine {
             ratingValue = ratingProp.number;
           }
 
+          const record = { pageId: page.id, currentStatus: statusValue, currentRating: ratingValue };
+
           if (asinValue) {
-            map.set(asinValue, { pageId: page.id, currentStatus: statusValue, currentRating: ratingValue });
+            byAsin.set(asinValue, record);
+          }
+          if (titleValue) {
+            byTitle.set(normalizeTitle(titleValue), record);
           }
         }
       }
@@ -65,7 +81,7 @@ export class NotionSyncEngine {
       cursor = response.has_more ? response.next_cursor || undefined : undefined;
     } while (cursor);
 
-    return map;
+    return { byAsin, byTitle };
   }
 
   /**
@@ -106,15 +122,16 @@ export class NotionSyncEngine {
     };
 
     console.log('Fetching existing Notion database state for deduplication...');
-    const existingBooks = await this.getExistingBooks();
+    const { byAsin, byTitle } = await this.getExistingBooks();
     const existingHighlightHashes = await this.getExistingHighlightHashes();
 
-    console.log(`Found ${existingBooks.size} existing books and ${existingHighlightHashes.size} existing highlights in Notion.`);
+    console.log(`Found ${byTitle.size} existing books and ${existingHighlightHashes.size} existing highlights in Notion.`);
 
     for (const book of books) {
       try {
         let bookPageId: string;
-        const existingBook = existingBooks.get(book.asin);
+        const normalizedTitle = normalizeTitle(book.title);
+        const existingBook = byAsin.get(book.asin) || byTitle.get(normalizedTitle);
 
         if (!existingBook) {
           // Create new Book in Notion
@@ -128,9 +145,6 @@ export class NotionSyncEngine {
             'Status': {
               select: { name: book.status }
             },
-            'ASIN': {
-              rich_text: [{ text: { content: book.asin } }]
-            },
             'Total Highlights': {
               number: book.highlights.length
             },
@@ -138,6 +152,12 @@ export class NotionSyncEngine {
               date: { start: new Date().toISOString() }
             }
           };
+
+          if (book.asin) {
+            pageProperties['ASIN'] = {
+              rich_text: [{ text: { content: book.asin } }]
+            };
+          }
 
           if (book.summary) {
             pageProperties['Summary'] = {
@@ -176,8 +196,13 @@ export class NotionSyncEngine {
           });
 
           bookPageId = newPage.id;
+          byTitle.set(normalizedTitle, { pageId: bookPageId, currentStatus: book.status, currentRating: book.rating });
+          if (book.asin) {
+            byAsin.set(book.asin, { pageId: bookPageId, currentStatus: book.status, currentRating: book.rating });
+          }
+
           stats.booksCreated++;
-          console.log(`Created Notion book page for "${book.title}".`);
+          console.log(`Created Notion book page for "${book.title}" [${book.status}].`);
         } else {
           bookPageId = existingBook.pageId;
 
@@ -191,13 +216,24 @@ export class NotionSyncEngine {
             }
           };
 
-          // If status not manually set in Notion, sync it
+          if (book.asin) {
+            updateProperties['ASIN'] = {
+              rich_text: [{ text: { content: book.asin } }]
+            };
+          }
+
           if (!existingBook.currentStatus) {
             updateProperties['Status'] = { select: { name: book.status } };
           }
 
           if (existingBook.currentRating === undefined && book.rating !== undefined) {
             updateProperties['Rating'] = { number: book.rating };
+          }
+
+          if (book.summary) {
+            updateProperties['Summary'] = {
+              rich_text: [{ text: { content: this.truncate(book.summary, 1900) } }]
+            };
           }
 
           await this.notion.pages.update({

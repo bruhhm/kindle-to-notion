@@ -2,58 +2,101 @@
 import { GoodreadsData, ReadingStatus } from '../types.js';
 import { normalizeTitle } from '../utils/hash.js';
 
-interface GoodreadsItem {
-  title?: string;
-  author_name?: string;
-  user_rating?: string;
-  user_read_at?: string;
-  user_review?: string;
-  link?: string;
+export interface FullGoodreadsBook {
+  bookId: string;
+  title: string;
+  author: string;
+  status: ReadingStatus;
+  userRating?: number;
+  dateRead?: string;
+  userReview?: string;
+  coverUrl?: string;
+  summary?: string;
+  isbn?: string;
 }
 
 export class GoodreadsEnricher {
-  private userId?: string;
+  private userId: string;
   private parser: Parser;
 
-  constructor(userId?: string) {
+  constructor(userId: string) {
     this.userId = userId;
-    this.parser = new Parser();
+    this.parser = new Parser({
+      customFields: {
+        item: [
+          'author_name',
+          'isbn',
+          'user_rating',
+          'user_read_at',
+          'user_date_added',
+          'user_shelves',
+          'book_description',
+          'book_large_image_url',
+          'book_medium_image_url',
+          'book_small_image_url',
+          'book_id'
+        ]
+      }
+    });
   }
 
-  async fetchUserShelves(): Promise<Map<string, GoodreadsData>> {
-    const bookMap = new Map<string, GoodreadsData>();
-    if (!this.userId) {
-      return bookMap;
-    }
+  private cleanHtml(html?: string): string | undefined {
+    if (!html) return undefined;
+    return html.replace(/<[^>]*>?/gm, '').trim();
+  }
 
-    const shelves: Array<{ shelf: string; status: ReadingStatus }> = [
-      { shelf: 'currently-reading', status: 'Currently Reading' },
-      { shelf: 'read', status: 'Read' },
-      { shelf: 'to-read', status: 'Want to Read' }
-    ];
+  async fetchAllBooks(): Promise<FullGoodreadsBook[]> {
+    const books: FullGoodreadsBook[] = [];
+    const seenTitles = new Set<string>();
 
-    for (const { shelf, status } of shelves) {
-      try {
-        const feedUrl = `https://www.goodreads.com/review/list_rss/${this.userId}?shelf=${shelf}`;
-        const feed = await this.parser.parseURL(feedUrl);
+    try {
+      const feedUrl = `https://www.goodreads.com/review/list_rss/${this.userId}?shelf=%23ALL%23`;
+      console.log(`Fetching full Goodreads library from ${feedUrl}...`);
+      const feed = await this.parser.parseURL(feedUrl);
 
-        for (const item of feed.items as GoodreadsItem[]) {
-          if (!item.title) continue;
-          const normalized = normalizeTitle(item.title);
+      for (const item of feed.items as any[]) {
+        if (!item.title) continue;
 
-          const rating = item.user_rating ? parseInt(item.user_rating, 10) : undefined;
-          bookMap.set(normalized, {
-            status,
-            userRating: isNaN(rating || NaN) ? undefined : rating,
-            dateRead: item.user_read_at || undefined,
-            userReview: item.user_review || undefined
-          });
+        const normalized = normalizeTitle(item.title);
+        if (seenTitles.has(normalized)) continue;
+        seenTitles.add(normalized);
+
+        let status: ReadingStatus = 'Want to Read';
+        const shelf = (item.user_shelves || '').toLowerCase();
+        if (shelf.includes('currently-reading')) {
+          status = 'Currently Reading';
+        } else if (shelf.includes('read') && !shelf.includes('to-read')) {
+          status = 'Read';
+        } else if (item.user_rating && parseInt(item.user_rating, 10) > 0) {
+          status = 'Read';
         }
-      } catch (err) {
-        console.warn(`Could not load Goodreads shelf "${shelf}": ${(err as Error).message}`);
+
+        const rating = item.user_rating ? parseInt(item.user_rating, 10) : undefined;
+        const rawCover = item.book_large_image_url || item.book_medium_image_url || item.book_small_image_url;
+        let coverUrl: string | undefined = undefined;
+        if (rawCover && !rawCover.includes('nophoto')) {
+          coverUrl = rawCover.replace(/i\.gr-assets\.com/, 'images-na.ssl-images-amazon.com');
+        }
+
+        books.push({
+          bookId: item.book_id || normalized,
+          title: item.title,
+          author: item.author_name || 'Unknown Author',
+          status,
+          userRating: isNaN(rating || NaN) || rating === 0 ? undefined : rating,
+          dateRead: item.user_read_at || undefined,
+          userReview: this.cleanHtml(item.user_review),
+          coverUrl,
+          summary: this.cleanHtml(item.book_description),
+          isbn: item.isbn || undefined
+        });
       }
+
+      console.log(`Successfully parsed ${books.length} total books from Goodreads.`);
+    } catch (err) {
+      console.error(`Error fetching Goodreads library: ${(err as Error).message}`);
     }
 
-    return bookMap;
+    return books;
   }
 }
