@@ -38,7 +38,7 @@ export class NotionSyncEngine {
 
       for (const page of response.results) {
         if (isFullPage(page)) {
-          const titleProp = page.properties['Title'];
+          const titleProp = page.properties['Title'] || page.properties['Name'];
           let titleValue = '';
           if (titleProp && titleProp.type === 'title' && titleProp.title.length > 0) {
             titleValue = titleProp.title[0].plain_text.trim();
@@ -164,7 +164,7 @@ export class NotionSyncEngine {
           };
         }
 
-        if (book.genres.length > 0) {
+        if (book.genres && book.genres.length > 0) {
           pageProperties['Genres'] = {
             multi_select: book.genres.slice(0, 5).map(g => ({ name: g.replace(/,/g, '').substring(0, 50) }))
           };
@@ -237,19 +237,19 @@ export class NotionSyncEngine {
           'Name': {
             title: [{ text: { content: previewTitle } }]
           },
-          'Highlight': {
+          'Highlight Text': {
             rich_text: [{ text: { content: this.truncate(hl.text, 1900) } }]
           },
           'Book': {
             relation: [{ id: bookPageId }]
           },
           'Type': {
-            select: { name: hl.type }
+            select: { name: hl.type || 'Highlight' }
           },
           'Hash ID': {
             rich_text: [{ text: { content: hl.id } }]
           },
-          'Created Date': {
+          'Date Added': {
             date: { start: new Date().toISOString() }
           }
         };
@@ -260,14 +260,8 @@ export class NotionSyncEngine {
           };
         }
 
-        if (hl.color) {
-          highlightProps['Color'] = {
-            select: { name: hl.color }
-          };
-        }
-
         if (hl.note) {
-          highlightProps['Personal Note'] = {
+          highlightProps['Note'] = {
             rich_text: [{ text: { content: this.truncate(hl.note, 1900) } }]
           };
         }
@@ -300,7 +294,7 @@ export class NotionSyncEngine {
 
     console.log(`Found ${existingBooks.byTitle.size} existing books and ${existingHighlightHashes.size} existing highlights in Notion.`);
 
-    // Process in concurrent batches of 5 for ultra-fast sync without hitting rate limits
+    // Process books in concurrent batches of 5
     const BATCH_SIZE = 5;
     for (let i = 0; i < books.length; i += BATCH_SIZE) {
       const batch = books.slice(i, i + BATCH_SIZE);

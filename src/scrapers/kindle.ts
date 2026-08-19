@@ -1,4 +1,6 @@
-import { chromium, BrowserContext, Page } from 'playwright';
+﻿import { chromium, BrowserContext, Page } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
 import { KindleBook, KindleHighlight, HighlightType } from '../types.js';
 import { generateHighlightHash } from '../utils/hash.js';
 
@@ -31,7 +33,6 @@ export class KindleScraper {
 
       if (!name) continue;
 
-      // Unquote value if wrapped
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1);
       }
@@ -50,17 +51,46 @@ export class KindleScraper {
   }
 
   async scrapeLibraryAndHighlights(): Promise<KindleBook[]> {
-    if (!this.cookieString || this.cookieString.trim().length === 0) {
-      throw new Error('AMAZON_COOKIE is required. Run "npm run login" to capture your session cookies.');
+    const sessionFilePath = path.resolve(process.cwd(), '.kindle_session.json');
+    let storageStateData: any = undefined;
+
+    // 1. Try reading from .kindle_session.json
+    if (fs.existsSync(sessionFilePath)) {
+      try {
+        storageStateData = JSON.parse(fs.readFileSync(sessionFilePath, 'utf8'));
+      } catch {}
+    }
+
+    // 2. Try parsing base64 storage state from cookie string
+    if (!storageStateData && this.cookieString) {
+      try {
+        const decoded = Buffer.from(this.cookieString, 'base64').toString('utf8');
+        const parsed = JSON.parse(decoded);
+        if (parsed.cookies || parsed.origins) {
+          storageStateData = parsed;
+        }
+      } catch {}
     }
 
     const browser = await chromium.launch({ headless: true });
-    const context: BrowserContext = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
+    let context: BrowserContext;
 
-    const parsedCookies = this.parseCookies(this.cookieString);
-    await context.addCookies(parsedCookies);
+    if (storageStateData) {
+      context = await browser.newContext({
+        storageState: storageStateData,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+    } else {
+      if (!this.cookieString || this.cookieString.trim().length === 0) {
+        await browser.close();
+        throw new Error('AMAZON_COOKIE is required. Run "npm run login" to capture your session cookies.');
+      }
+      context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+      const parsedCookies = this.parseCookies(this.cookieString);
+      await context.addCookies(parsedCookies);
+    }
 
     const page: Page = await context.newPage();
     const books: KindleBook[] = [];
@@ -69,12 +99,12 @@ export class KindleScraper {
       const notebookUrl = `https://read.${this.domain}/notebook`;
       console.log(`Navigating to ${notebookUrl}...`);
 
-      const response = await page.goto(notebookUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      const response = await page.goto(notebookUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       if (!response || response.status() >= 400) {
         throw new Error(`Failed to load Kindle notebook: HTTP ${response?.status()}`);
       }
 
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(2000);
 
       // Check if redirected to sign-in page
       const currentUrl = page.url();
@@ -83,7 +113,7 @@ export class KindleScraper {
       }
 
       // Wait for books list container
-      await page.waitForSelector('#kp-notebook-library, .kp-notebook-library-each-book', { timeout: 30000 });
+      await page.waitForSelector('#kp-notebook-library, .kp-notebook-library-each-book', { timeout: 20000 });
 
       // Extract all book elements from sidebar
       const bookElements = await page.$$('.kp-notebook-library-each-book');
@@ -92,64 +122,80 @@ export class KindleScraper {
       for (let i = 0; i < bookElements.length; i++) {
         const bookEl = bookElements[i];
 
-        // Click on the book to load highlights
-        await bookEl.click();
-        await page.waitForTimeout(2000);
+        try {
+          await bookEl.click();
+          await page.waitForTimeout(1000);
 
-        const asin = await bookEl.getAttribute('id') || `book_${i}`;
-        const titleEl = await bookEl.$('h2.kp-notebook-searchable');
-        const title = titleEl ? (await titleEl.innerText()).trim() : 'Unknown Title';
+          const asin = (await bookEl.getAttribute('id')) || `book_${i}`;
+          const titleEl = await bookEl.$('h2.kp-notebook-searchable');
+          const titleText = titleEl ? await titleEl.innerText() : '';
+          const title = titleText ? titleText.trim() : 'Untitled';
 
-        const authorEl = await bookEl.$('p.kp-notebook-searchable');
-        const author = authorEl ? (await authorEl.innerText()).replace(/^By:\s*/i, '').trim() : 'Unknown Author';
+          const authorEl = await bookEl.$('p.kp-notebook-searchable');
+          const authorText = authorEl ? await authorEl.innerText() : '';
+          const author = authorText ? authorText.replace(/^By:\s*/i, '').trim() : 'Unknown Author';
 
-        const coverEl = await bookEl.$('img.kp-notebook-cover-image');
-        const coverUrl = coverEl ? await coverEl.getAttribute('src') : undefined;
+          const coverImgEl = await bookEl.$('img.kp-notebook-cover-image');
+          const coverUrl = coverImgEl ? (await coverImgEl.getAttribute('src')) || undefined : undefined;
 
-        // Scrape highlights for currently active book
-        const highlights: KindleHighlight[] = [];
-        const highlightElements = await page.$$('#kp-notebook-annotations > .a-row.kp-notebook-highlight');
+          // Extract highlights from main pane
+          const highlights: KindleHighlight[] = [];
+          const highlightNodes = await page.$$('#kp-notebook-annotations .a-row.kp-notebook-highlight, #kp-notebook-annotations .kp-notebook-annotation, #kp-notebook-annotations .a-row');
 
-        for (const hlEl of highlightElements) {
-          const textEl = await hlEl.$('#highlight');
-          const text = textEl ? (await textEl.innerText()).trim() : '';
+          for (let j = 0; j < highlightNodes.length; j++) {
+            const node = highlightNodes[j];
 
-          if (!text) continue;
+            const textEl = await node.$('#highlight, span.kp-notebook-highlight-text, .kp-notebook-highlight');
+            const rawText = textEl ? await textEl.innerText() : '';
+            const text = rawText ? rawText.trim() : '';
 
-          const noteEl = await hlEl.$('#note');
-          const note = noteEl ? (await noteEl.innerText()).trim() : undefined;
+            if (!text) continue;
 
-          const locationEl = await hlEl.$('#kp-annotation-location');
-          const location = locationEl ? (await locationEl.getAttribute('value')) || '' : '';
+            const locEl = await node.$('#annotationLocation, #kp-annotation-location, span[id*="annotationLocation"]');
+            const rawLoc = locEl ? await locEl.innerText() : '';
+            const location = rawLoc ? rawLoc.trim() : undefined;
 
-          const type: HighlightType = note && !text ? 'Note' : 'Highlight';
-          const hashId = generateHighlightHash(asin, location, text);
+            const colorEl = await node.$('.kp-notebook-highlight-color, [class*="kp-notebook-highlight-color"]');
+            const colorClass = colorEl ? await colorEl.getAttribute('class') : '';
+            let color: 'Yellow' | 'Blue' | 'Pink' | 'Orange' | undefined = undefined;
+            if (colorClass?.includes('yellow')) color = 'Yellow';
+            else if (colorClass?.includes('blue')) color = 'Blue';
+            else if (colorClass?.includes('pink')) color = 'Pink';
+            else if (colorClass?.includes('orange')) color = 'Orange';
 
-          highlights.push({
-            id: hashId,
-            text,
-            note,
-            location: location || undefined,
-            type,
-            dateAdded: new Date().toISOString()
+            const noteEl = await node.$('#note, span.kp-notebook-note, .kp-notebook-note');
+            const rawNote = noteEl ? await noteEl.innerText() : '';
+            const note = rawNote ? rawNote.trim() : undefined;
+
+            const highlightId = generateHighlightHash(asin || title, location, text);
+
+            highlights.push({
+              id: highlightId,
+              text,
+              type: 'Highlight',
+              location,
+              color,
+              note
+            });
+          }
+
+          console.log(`Extracted "${title}" with ${highlights.length} highlights.`);
+
+          books.push({
+            asin,
+            title,
+            author,
+            coverUrl,
+            highlights
           });
+        } catch (bookErr) {
+          console.warn(`Error reading book element ${i}: ${(bookErr as Error).message}`);
         }
-
-        books.push({
-          asin,
-          title,
-          author,
-          coverUrl: coverUrl || undefined,
-          lastReadPercentage: highlights.length > 0 ? 50 : 0,
-          highlights
-        });
-
-        console.log(`Extracted "${title}" by ${author} (${highlights.length} highlights).`);
       }
+
+      return books;
     } finally {
       await browser.close();
     }
-
-    return books;
   }
 }
