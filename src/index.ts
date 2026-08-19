@@ -124,6 +124,19 @@ async function main() {
     }
   }
 
+  // Enrich books that are missing English summaries
+  for (const book of mergedBooks) {
+    if (!book.summary) {
+      try {
+        const extra = await booksApiEnricher.enrichMetadata(book.title, book.author, book.asin);
+        if (extra.summary) book.summary = extra.summary;
+        if (extra.genres && extra.genres.length > 0) book.genres = extra.genres;
+        if (extra.pageCount) book.pageCount = extra.pageCount;
+        if (extra.highResCoverUrl && !book.coverUrl) book.coverUrl = extra.highResCoverUrl;
+      } catch {}
+    }
+  }
+
   console.log(`Prepared ${mergedBooks.length} total books for Notion synchronization.`);
 
   // 4. Sync to Notion (Fast Concurrent Batching)

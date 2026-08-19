@@ -1,4 +1,4 @@
-import Parser from 'rss-parser';
+﻿import Parser from 'rss-parser';
 import { GoodreadsData, ReadingStatus } from '../types.js';
 import { normalizeTitle } from '../utils/hash.js';
 
@@ -40,9 +40,19 @@ export class GoodreadsEnricher {
     });
   }
 
+  private isNonEnglish(text?: string): boolean {
+    if (!text) return false;
+    // Check for non-Latin writing systems (Arabic, Cyrillic, CJK, etc.)
+    return /[\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF\u3040-\u30FF\u0590-\u05FF]/.test(text);
+  }
+
   private cleanHtml(html?: string): string | undefined {
     if (!html) return undefined;
-    return html.replace(/<[^>]*>?/gm, '').trim();
+    const cleaned = html.replace(/<[^>]*>?/gm, '').trim();
+    if (!cleaned || this.isNonEnglish(cleaned)) {
+      return undefined;
+    }
+    return cleaned;
   }
 
   async fetchAllBooks(): Promise<FullGoodreadsBook[]> {

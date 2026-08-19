@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import { EnrichedMetadata } from '../types.js';
 
 interface GoogleBooksItem {
@@ -25,6 +25,11 @@ export class BooksApiEnricher {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  private isNonEnglish(text?: string): boolean {
+    if (!text) return false;
+    return /[\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF\u3040-\u30FF\u0590-\u05FF]/.test(text);
+  }
+
   async enrichMetadata(title: string, author: string, asin?: string): Promise<EnrichedMetadata> {
     const enriched: EnrichedMetadata = {
       genres: []
@@ -44,62 +49,59 @@ export class BooksApiEnricher {
       .replace(/,.*$/i, '')
       .trim();
 
-    // 1. Try Google Books API
+    // 1. Open Library (Primary English metadata without rate limits)
     try {
-      await this.sleep(400); // Respect rate limits
-      const query = `intitle:${encodeURIComponent(cleanTitle)}+inauthor:${encodeURIComponent(cleanAuthor)}`;
-      const googleBooksUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
+      await this.sleep(200);
+      const olUrl = `https://openlibrary.org/search.json?title=${encodeURIComponent(cleanTitle)}&author=${encodeURIComponent(cleanAuthor)}&limit=1`;
+      const olRes = await axios.get<{ docs?: Array<{ key?: string; cover_i?: number; first_publish_year?: number; subject?: string[] }> }>(olUrl, { timeout: 8000 });
 
-      const response = await axios.get<{ items?: GoogleBooksItem[] }>(googleBooksUrl, { timeout: 8000 });
+      if (olRes.data.docs && olRes.data.docs.length > 0) {
+        const doc = olRes.data.docs[0];
+        if (doc.cover_i) {
+          enriched.highResCoverUrl = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+        }
+        if (doc.subject) {
+          enriched.genres = doc.subject.slice(0, 4);
+        }
 
-      if (response.data.items && response.data.items.length > 0) {
-        const volume = response.data.items[0].volumeInfo;
-        if (volume) {
-          enriched.summary = volume.description;
-          enriched.genres = volume.categories || [];
-          enriched.pageCount = volume.pageCount;
-          enriched.publisher = volume.publisher;
-          enriched.publishedDate = volume.publishedDate;
-
-          const images = volume.imageLinks;
-          if (images) {
-            const rawCover = images.extraLarge || images.large || images.medium || images.thumbnail;
-            if (rawCover) {
-              enriched.highResCoverUrl = rawCover.replace('http://', 'https://').replace('&edge=curl', '');
+        if (doc.key) {
+          try {
+            const workRes = await axios.get(`https://openlibrary.org${doc.key}.json`, { timeout: 6000 });
+            let desc = workRes.data.description;
+            if (typeof desc === 'object' && desc?.value) desc = desc.value;
+            if (typeof desc === 'string' && desc.trim().length > 20 && !this.isNonEnglish(desc)) {
+              enriched.summary = desc.trim();
             }
-          }
-
-          if (volume.industryIdentifiers) {
-            const isbnObj = volume.industryIdentifiers.find(id => id.type === 'ISBN_13' || id.type === 'ISBN_10');
-            if (isbnObj) {
-              enriched.isbn = isbnObj.identifier;
-            }
-          }
+          } catch {}
         }
       }
-    } catch (err) {
-      // Continue to Open Library fallback
-    }
+    } catch {}
 
-    // 2. Open Library Fallback
-    if (!enriched.highResCoverUrl || !enriched.summary) {
+    // 2. Google Books API (English-restricted fallback)
+    if (!enriched.summary) {
       try {
         await this.sleep(300);
-        const olUrl = `https://openlibrary.org/search.json?title=${encodeURIComponent(cleanTitle)}&author=${encodeURIComponent(cleanAuthor)}&limit=1`;
-        const olRes = await axios.get<{ docs?: Array<{ key?: string; cover_i?: number; first_publish_year?: number; subject?: string[] }> }>(olUrl, { timeout: 8000 });
+        const query = `intitle:${encodeURIComponent(cleanTitle)}+inauthor:${encodeURIComponent(cleanAuthor)}`;
+        const googleBooksUrl = `https://www.googleapis.com/books/v1/volumes?q=${query}&langRestrict=en&maxResults=3`;
 
-        if (olRes.data.docs && olRes.data.docs.length > 0) {
-          const doc = olRes.data.docs[0];
-          if (!enriched.highResCoverUrl && doc.cover_i) {
-            enriched.highResCoverUrl = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
-          }
-          if (enriched.genres.length === 0 && doc.subject) {
-            enriched.genres = doc.subject.slice(0, 4);
+        const response = await axios.get<{ items?: GoogleBooksItem[] }>(googleBooksUrl, { timeout: 8000 });
+
+        if (response.data.items && response.data.items.length > 0) {
+          for (const item of response.data.items) {
+            const volume = item.volumeInfo;
+            if (volume?.description && !this.isNonEnglish(volume.description)) {
+              enriched.summary = volume.description;
+              if (enriched.genres.length === 0 && volume.categories) {
+                enriched.genres = volume.categories;
+              }
+              if (!enriched.pageCount) enriched.pageCount = volume.pageCount;
+              if (!enriched.publisher) enriched.publisher = volume.publisher;
+              if (!enriched.publishedDate) enriched.publishedDate = volume.publishedDate;
+              break;
+            }
           }
         }
-      } catch (err) {
-        // Fallback catch
-      }
+      } catch {}
     }
 
     return enriched;
