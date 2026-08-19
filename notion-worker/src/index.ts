@@ -1,4 +1,4 @@
-﻿import { Worker } from "@notionhq/workers";
+﻿import { Worker, j } from "@notionhq/workers";
 import * as Builder from "@notionhq/workers/builder";
 import * as Schema from "@notionhq/workers/schema";
 import Parser from "rss-parser";
@@ -16,14 +16,12 @@ const booksDatabase = worker.database("booksDatabase", {
       Title: Schema.title(),
       "Book ID": Schema.richText(),
       Author: Schema.richText(),
-      Status: Schema.select({
-        options: [
-          { name: "Want to Read", color: "gray" },
-          { name: "Currently Reading", color: "orange" },
-          { name: "Read", color: "green" },
-        ],
-      }),
-      Rating: Schema.number({ format: "number" }),
+      Status: Schema.select([
+        { name: "Want to Read", color: "gray" },
+        { name: "Currently Reading", color: "orange" },
+        { name: "Read", color: "green" },
+      ]),
+      Rating: Schema.number("number"),
       Summary: Schema.richText(),
       ISBN: Schema.richText(),
       "Date Read": Schema.date(),
@@ -64,7 +62,7 @@ worker.sync("goodreadsSync", {
     console.log(`Notion Worker syncing Goodreads library from ${feedUrl}...`);
 
     const feed = await parser.parseURL(feedUrl);
-    const changes = [];
+    const changes: any[] = [];
 
     for (const item of feed.items as any[]) {
       if (!item.title) continue;
@@ -87,19 +85,28 @@ worker.sync("goodreadsSync", {
 
       const bookId = item.book_id || item.title;
 
+      const properties: Record<string, any> = {
+        Title: Builder.title(item.title),
+        "Book ID": Builder.richText(bookId),
+        Author: Builder.richText(item.author_name || "Unknown Author"),
+        Status: Builder.select(status),
+        Summary: Builder.richText(cleanHtml(item.book_description)),
+      };
+
+      if (rating && rating > 0) {
+        properties["Rating"] = Builder.number(rating);
+      }
+      if (item.isbn) {
+        properties["ISBN"] = Builder.richText(item.isbn);
+      }
+      if (item.user_read_at) {
+        properties["Date Read"] = Builder.date(item.user_read_at);
+      }
+
       changes.push({
         type: "upsert" as const,
         key: bookId,
-        properties: {
-          Title: Builder.title(item.title),
-          "Book ID": Builder.richText(bookId),
-          Author: Builder.richText(item.author_name || "Unknown Author"),
-          Status: Builder.select(status),
-          Rating: rating && rating > 0 ? Builder.number(rating) : undefined,
-          Summary: Builder.richText(cleanHtml(item.book_description)),
-          ISBN: item.isbn ? Builder.richText(item.isbn) : undefined,
-          "Date Read": item.user_read_at ? Builder.date(item.user_read_at) : undefined,
-        },
+        properties,
         cover: coverUrl ? Builder.imageCover(coverUrl) : undefined,
       });
     }
@@ -113,8 +120,9 @@ worker.sync("goodreadsSync", {
 
 // 3. Register Tool for Notion AI Custom Agents
 worker.tool("syncReadingLibrary", {
+  title: "Sync Reading Library",
   description: "Triggers a full synchronization of your Goodreads and Kindle reading library.",
-  parameters: {},
+  schema: j.object({}),
   execute: async () => {
     return {
       status: "success",
