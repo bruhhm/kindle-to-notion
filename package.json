@@ -1,14 +1,15 @@
 ﻿{
   "name": "kindle-to-notion",
   "version": "1.0.0",
-  "description": "Automated Kindle to Notion sync engine with metadata enrichment, Goodreads sync, and 6-hour scheduler",
+  "description": "Automated Kindle and Goodreads to Notion two-way sync engine with metadata enrichment and 6-hour scheduler",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "sync": "tsx src/index.ts",
     "setup-notion": "tsx src/cli/setup.ts",
-    "login": "tsx src/cli/login.ts"
+    "login": "tsx src/cli/login.ts",
+    "login-goodreads": "tsx src/cli/login-goodreads.ts"
   },
   "keywords": [
     "kindle",

@@ -1,4 +1,4 @@
-﻿name: Kindle to Notion 6-Hour Sync
+﻿name: Kindle and Goodreads to Notion 6-Hour Sync
 
 on:
   schedule:
@@ -25,12 +25,13 @@ jobs:
       - name: Install Playwright Browsers & System Deps
         run: npx playwright install --with-deps chromium
 
-      - name: Execute Kindle to Notion Sync Engine
+      - name: Execute Two-Way Sync Engine
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_BOOKS_DATABASE_ID: ${{ secrets.NOTION_BOOKS_DATABASE_ID }}
           NOTION_HIGHLIGHTS_DATABASE_ID: ${{ secrets.NOTION_HIGHLIGHTS_DATABASE_ID }}
           AMAZON_DOMAIN: ${{ secrets.AMAZON_DOMAIN || 'amazon.com' }}
           AMAZON_COOKIE: ${{ secrets.AMAZON_COOKIE }}
-          GOODREADS_USER_ID: ${{ secrets.GOODREADS_USER_ID }}
+          GOODREADS_USER_ID: ${{ secrets.GOODREADS_USER_ID || '166837688' }}
+          GOODREADS_COOKIE: ${{ secrets.GOODREADS_COOKIE }}
         run: npm run sync
