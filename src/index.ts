@@ -39,42 +39,20 @@ async function main() {
   const goodreadsBooks = await goodreadsEnricher.fetchAllBooks();
   console.log(`Loaded ${goodreadsBooks.length} books from Goodreads.`);
 
-  // 2. Check for manual updates made in Notion to sync back to Goodreads (Two-Way)
-  if (goodreadsCookie) {
-    console.log('Checking for Notion status/rating updates to sync back to Goodreads...');
-    const { byTitle } = await syncEngine.getExistingBooks();
-    const grWriter = new GoodreadsWriter({ cookieString: goodreadsCookie });
-    const isReady = await grWriter.init();
-
-    if (isReady) {
-      for (const gb of goodreadsBooks) {
-        const normTitle = normalizeTitle(gb.title);
-        const notionBook = byTitle.get(normTitle);
-
-        if (notionBook && notionBook.currentStatus) {
-          if (notionBook.currentStatus !== gb.status) {
-            console.log(`Detected Notion status change for "${gb.title}": ${gb.status} -> ${notionBook.currentStatus}`);
-            await grWriter.updateBookShelfAndRating(gb.bookId || gb.title, notionBook.currentStatus as ReadingStatus, notionBook.currentRating);
-            gb.status = notionBook.currentStatus as ReadingStatus;
-          }
-        }
-      }
-      await grWriter.close();
-    }
-  }
-
-  // 3. Scrape Kindle Library & Highlights
-  console.log('Step 3: Extracting Kindle Library & Highlights...');
+  // 2. Extract Kindle Library & Highlights
+  console.log('Step 2: Extracting Kindle Library & Highlights...');
   let kindleBooks: KindleBook[] = [];
-  try {
-    const scraper = new KindleScraper({
-      domain: amazonDomain,
-      cookieString: amazonCookie
-    });
-    kindleBooks = await scraper.scrapeLibraryAndHighlights();
-    console.log(`Extracted ${kindleBooks.length} books with highlights from Kindle.`);
-  } catch (err) {
-    console.warn(`Kindle scraper warning: ${(err as Error).message}. Proceeding with Goodreads library.`);
+  if (amazonCookie && amazonCookie.trim().length > 0) {
+    try {
+      const scraper = new KindleScraper({
+        domain: amazonDomain,
+        cookieString: amazonCookie
+      });
+      kindleBooks = await scraper.scrapeLibraryAndHighlights();
+      console.log(`Extracted ${kindleBooks.length} books with highlights from Kindle.`);
+    } catch (err) {
+      console.warn(`Kindle scraper notice: ${(err as Error).message}. Proceeding with Goodreads library.`);
+    }
   }
 
   // Map Kindle books by normalized title and ASIN
@@ -83,8 +61,8 @@ async function main() {
     kindleByTitle.set(normalizeTitle(kb.title), kb);
   }
 
-  // 4. Merge Goodreads + Kindle + Google Books Enrichment
-  console.log('Step 4: Merging data sources and enriching missing metadata...');
+  // 3. Merge Goodreads + Kindle + Metadata Enrichment
+  console.log('Step 3: Merging data sources and enriching metadata...');
   const booksApiEnricher = new BooksApiEnricher();
   const mergedBooks: MergedBookData[] = [];
   const processedTitles = new Set<string>();
@@ -96,37 +74,18 @@ async function main() {
     const matchingKindle = kindleByTitle.get(normTitle);
     const highlights = matchingKindle?.highlights || [];
 
-    let coverUrl = gb.coverUrl;
-    let summary = gb.summary;
-    let genres: string[] = [];
-    let pageCount: number | undefined = undefined;
-    let publisher: string | undefined = undefined;
-    let publishedDate: string | undefined = undefined;
-    let isbn = gb.isbn;
-
-    if (!coverUrl || !summary) {
-      const enriched = await booksApiEnricher.enrichMetadata(gb.title, gb.author, matchingKindle?.asin);
-      coverUrl = coverUrl || enriched.highResCoverUrl;
-      summary = summary || enriched.summary;
-      genres = enriched.genres;
-      pageCount = enriched.pageCount;
-      publisher = enriched.publisher;
-      publishedDate = enriched.publishedDate;
-      isbn = isbn || enriched.isbn;
-    }
-
     mergedBooks.push({
       asin: matchingKindle?.asin || gb.bookId,
       title: gb.title,
       author: gb.author,
       status: gb.status,
-      coverUrl,
-      summary,
-      genres,
-      pageCount,
-      publisher,
-      publishedDate,
-      isbn,
+      coverUrl: gb.coverUrl,
+      summary: gb.summary,
+      genres: [],
+      pageCount: undefined,
+      publisher: undefined,
+      publishedDate: undefined,
+      isbn: gb.isbn,
       rating: gb.userRating,
       totalHighlights: highlights.length,
       lastSynced: new Date().toISOString(),
@@ -139,7 +98,6 @@ async function main() {
     if (!processedTitles.has(normTitle)) {
       processedTitles.add(normTitle);
 
-      const enriched = await booksApiEnricher.enrichMetadata(kb.title, kb.author, kb.asin);
       let status: ReadingStatus = 'Want to Read';
       if (kb.lastReadPercentage && kb.lastReadPercentage >= 95) {
         status = 'Read';
@@ -152,13 +110,13 @@ async function main() {
         title: kb.title,
         author: kb.author,
         status,
-        coverUrl: enriched.highResCoverUrl || kb.coverUrl,
-        summary: enriched.summary,
-        genres: enriched.genres,
-        pageCount: enriched.pageCount,
-        publisher: enriched.publisher,
-        publishedDate: enriched.publishedDate,
-        isbn: enriched.isbn,
+        coverUrl: kb.coverUrl,
+        summary: undefined,
+        genres: [],
+        pageCount: undefined,
+        publisher: undefined,
+        publishedDate: undefined,
+        isbn: undefined,
         totalHighlights: kb.highlights.length,
         lastSynced: new Date().toISOString(),
         highlights: kb.highlights
@@ -168,8 +126,8 @@ async function main() {
 
   console.log(`Prepared ${mergedBooks.length} total books for Notion synchronization.`);
 
-  // 5. Sync to Notion
-  console.log('Step 5: Synchronizing full library with Notion...');
+  // 4. Sync to Notion (Fast Concurrent Batching)
+  console.log('Step 4: Synchronizing full library with Notion...');
   const stats = await syncEngine.syncAll(mergedBooks);
 
   const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
