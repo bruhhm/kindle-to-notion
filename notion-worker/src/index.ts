@@ -35,6 +35,18 @@ function cleanHtml(html?: string): string {
   return html.replace(/<[^>]*>?/gm, "").trim().substring(0, 1900);
 }
 
+// Helper to format date as YYYY-MM-DD
+function formatDate(dateStr?: string): string | undefined {
+  if (!dateStr) return undefined;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return undefined;
+    return d.toISOString().split("T")[0];
+  } catch {
+    return undefined;
+  }
+}
+
 // 2. Register Scheduled Sync (Runs automatically every 6 hours inside Notion)
 worker.sync("goodreadsSync", {
   database: booksDatabase,
@@ -84,6 +96,7 @@ worker.sync("goodreadsSync", {
         : undefined;
 
       const bookId = item.book_id || item.title;
+      const validDate = formatDate(item.user_read_at);
 
       const properties: Record<string, any> = {
         Title: Builder.title(item.title),
@@ -99,8 +112,8 @@ worker.sync("goodreadsSync", {
       if (item.isbn) {
         properties["ISBN"] = Builder.richText(item.isbn);
       }
-      if (item.user_read_at) {
-        properties["Date Read"] = Builder.date(item.user_read_at);
+      if (validDate) {
+        properties["Date Read"] = Builder.date(validDate);
       }
 
       changes.push({
