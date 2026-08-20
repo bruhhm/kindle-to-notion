@@ -124,7 +124,7 @@ export class NotionSyncEngine {
             rich_text: [{ text: { content: this.truncate(book.author, 200) } }]
           },
           'Status': {
-            select: { name: book.status }
+            select: { name: book.status || 'Want to Read' }
           },
           'Total Highlights': {
             number: book.highlights.length
@@ -201,11 +201,11 @@ export class NotionSyncEngine {
           };
         }
 
-        if (!existingBook.currentStatus) {
+        if (book.status) {
           updateProperties['Status'] = { select: { name: book.status } };
         }
 
-        if (existingBook.currentRating === undefined && book.rating !== undefined) {
+        if (book.rating !== undefined) {
           updateProperties['Rating'] = { number: book.rating };
         }
 
